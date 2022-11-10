@@ -1,9 +1,281 @@
-;
-/
-\
+#!/bin/sh
+
+#############################################
+###   Continent Service Departmet Tools   ###
+###                                       ###
+###   04 2015, k.kodanev@securitycode.ru  ###
+###   This file is released under GPL-3   ###
+###              or later.                ###
+#############################################
+
+## Some variables ##
+
+ACTION=$1
+PFCTL="/bin/pfctl"
+AWK="/bin/busybox awk"
+NETSTAT="/bin/netstat"
+GREP="/bin/busybox grep"
+IFCONFIG="/bin/ifconfig"
+VMSTAT="/bin/vmstat"
+BASENAME="/bin/busybox basename"
 
 
+### Functions ###
+
+get_user_counters ()
+{
+  echo -e "Top 25 user's rules by packets:"
+  $PFCTL -vsr -a user |$AWK  '{str = $0 " " str} NR % 3 == 0 {eval = label = packets = iface = str ; sub(/.*Evaluations: */, "", eval) ; sub(/ .*$/, "", eval) ; sub(/.*label */, "", label) ; sub(/.*Packets: */, "", packets) ; sub(/ .*$/, "", packets) ; sub(/.*on */, "", iface) ; sub(/ .*$/, "", iface) ; print label, eval, packets, iface, str ~ /keep state/ ? "yes" : "no", str ~ /out/ ? "out" : "in", str ~ /pass/ ? "pass" : str ~ /block/ ? "block":"match" ; str = "" } END {print "End of rules"} ' | /bin/busybox sort -k3,3rn -k2,2rn | /bin/busybox head -n 25| $AWK  -v OFS='\t' ' { print "Rule: ", $1, "Packets: ", $3, "Evaluations: ", $2 , "Interface: ", $4, "Statefull: ", $5, "Direction: ", $6, "Action: ", $7}'
+  
+  echo -e "Top 25 user's rules by evaluations:"
+  $PFCTL -vsr -a user |$AWK  '{str = $0 " " str} NR % 3 == 0 {eval = label = packets = iface = str ; sub(/.*Evaluations: */, "", eval) ; sub(/ .*$/, "", eval) ; sub(/.*label */, "", label) ; sub(/.*Packets: */, "", packets) ; sub(/ .*$/, "", packets) ; sub(/.*on */, "", iface) ; sub(/ .*$/, "", iface) ; print label, eval, packets, iface, str ~ /keep state/ ? "yes" : "no", str ~ /out/ ? "out" : "in", str ~ /pass/ ? "pass" : str ~ /block/ ? "block":"match" ; str = "" } END {print "End of rules"} ' | /bin/busybox sort -k2,2rn -k3,3rn | /bin/busybox head -n 25| $AWK  -v OFS='\t' ' { print "Rule: ", $1, "Packets: ", $3, "Evaluations: ", $2 , "Interface: ", $4, "Statefull: ", $5, "Direction: ", $6, "Action: ", $7}'
+
+}
+
+get_nat_user_counters () 
+{
+  echo -e "Top 25 NAT user's rules by packets:\n"
+  $PFCTL -vsr -a nat_user |$AWK  '{str = $0 " " str} NR % 3 == 0 {eval = label = packets = iface = str ; sub(/.*Evaluations: */, "", eval) ; sub(/ .*$/, "", eval) ; sub(/.*label */, "", label) ; sub(/.*Packets: */, "", packets) ; sub(/ .*$/, "", packets) ; sub(/.*on */, "", iface) ; sub(/ .*$/, "", iface) ; print label, eval, packets, iface, str ~ /keep state/ ? "yes" : "no", str ~ /out/ ? "out" : "in", str ~ /pass/ ? "pass" : str ~ /block/ ? "block":"match" ; str = "" } END {print "End of rules"} ' | /bin/busybox sort -k3,3rn -k2,2rn| /bin/busybox head -n 25| $AWK  -v OFS='\t' ' { print "Rule: ", $1, "Packets: ", $3, "Evaluations: ", $2 , "Interface: ", $4, "Statefull: ", $5, "Direction: ", $6, "Action: ", $7}'
+  
+  echo -e "Top 25 NAT user's rules by evaluations:\n"
+  $PFCTL -vsr -a nat_user |$AWK  '{str = $0 " " str} NR % 3 == 0 {eval = label = packets = iface = str ; sub(/.*Evaluations: */, "", eval) ; sub(/ .*$/, "", eval) ; sub(/.*label */, "", label) ; sub(/.*Packets: */, "", packets) ; sub(/ .*$/, "", packets) ; sub(/.*on */, "", iface) ; sub(/ .*$/, "", iface) ; print label, eval, packets, iface, str ~ /keep state/ ? "yes" : "no", str ~ /out/ ? "out" : "in", str ~ /pass/ ? "pass" : str ~ /block/ ? "block":"match" ; str = "" } END {print "End of rules"} ' | /bin/busybox sort -k2,2rn -k3,3rn| /bin/busybox head -n 25| $AWK  -v OFS='\t' ' { print "Rule: ", $1, "Packets: ", $3, "Evaluations: ", $2 , "Interface: ", $4, "Statefull: ", $5, "Direction: ", $6, "Action: ", $7}'
+  
+}
+
+get_boot_time ()
+{
+sysctl -n kern.boottime | $AWK '{print "System started at",$9,$10,$11,$12,$13}'
+}
+get_filter_info ()
+{
+  $PFCTL -si
+}
+
+get_gate_ip_address ()
+{
+  $NETSTAT -in -f inet| $GREP -v lo0| $AWK '{ printf "%s\t%-10s\t%-10s\t%-10s\n", $1, $4, $3, $2 }'
+}
+
+get_interface_state ()
+
+{
+  $IFCONFIG -lu | $AWK 'BEGIN {print "Interface is UP:"}; { for (num = 1 ; num <= NF ; num++) if ($num !~ /pflog|lo|lagg/)  {print "\t\t " $num}} ' ; $IFCONFIG -ld | $AWK 'BEGIN {print "\nInterface is DOWN:"}; { for (num = 1 ; num <= NF ; num++) if ($num !~ /pflog|pfsync|lagg/)  {print "\t\t " $num}} ' 
+}
 
 
+get_gate_routes ()
+{
+  $NETSTAT -rn -f inet| $GREP -v lo0| $AWK 'NR >3 { printf "%-16s\t%-16s\t%-10s\n", $1, $2, $6 }'
+}
 
-
+get_gate_peers ()
+{
+  sysctl net.inet.ipcrypt.stats |$AWK ' BEGIN {print "List of crypto peers:"}
+  /peer/ {print "\nPeer: " $3}
+  /crypto\ endpoints/ {getline; print "\tAddress:   " $2}
+  /\ net/ {print "\tNetwork:   " $3}'
+}
+
+get_limits ()
+{
+  $PFCTL -sa | $AWK 'BEGIN {print "Current limits:"} /LIMITS/ {
+    num = NR+4
+    for ( i = NR ; i <= num ; i++) { getline; print }
+    }'
+  echo -e "\nFor overwrite limits use $($BASENAME ${0}) set limit [limit_name] [value]"
+
+}
+
+get_timeouts ()
+{
+  $PFCTL -sa | $AWK 'BEGIN {print "Current filter timeouts:"} /TIMEOUTS/ {
+  num = NR+19
+  for ( i = NR ; i <= num ; i++) { getline; print }
+  }'
+  echo -e "\nFor set timeouts use $($BASENAME ${0}) set timeout  [mode]"
+}
+
+get_interrupt_info ()
+
+{
+  echo "System interrupt info:"
+  $VMSTAT -i
+}
+
+get_platform ()
+{
+  $AWK 'NR > 1 {gsub(/\(|\)/, "") ;  print "This is " $1 " on hardware platform " $2 } ' /etc/platform  
+}
+
+set_limits ()
+{
+  if [ "$1" ]
+    then 
+      if [ "$2" ]
+        then 
+          echo "set limit $1 $2" | $PFCTL -mf -
+        else
+          echo "Wrong limit value!"
+      fi
+    else 
+     echo "Wrong limit name!"
+    fi
+}
+
+set_mode ()
+{
+  if [ "$1" ]
+    then 
+      echo "set optimization $1" | $PFCTL -mf -
+    else 
+      echo "Wrong mode!"
+  fi
+}
+
+clear_filter_statistic () 
+{
+  echo "Cleaning counters for user's rules..."
+  $PFCTL -z -a user
+  echo "Cleaning counters for nat user's rules..."
+  $PFCTL -z -a nat_user
+  echo "Cleaning counters for system rules..."
+  $PFCTL -z -a system
+  echo "Complete!"
+}
+
+clear_filter_info ()
+{
+  $PFCTL -F info
+}
+
+usage ()
+{
+  echo -e "Continent Service Department Tools\n"
+echo "usage: $($BASENAME ${0}) get | set | clear | disable | enable "
+    echo "  get:"
+    echo "        platform      Get appliance model and hardware platform"
+    echo "        ucnt:         Get 25 top user's rules statistic"
+    echo "        nucnt:        Get 25 user's NAT rules statistic"
+    echo "        finfo:        Get current filter counters and rate info"
+    echo "        addr:         Get IP address on gate's interface"
+    echo "        ifstate:      Get state of interface (UP/DOWN)"
+    echo "        irq           Get interrupt statistic for system"
+    echo "        route:        Get IP route gate's information"
+    echo "        peers:        Get information about crypto peers"
+    echo "        limits:       Get filter limits setting"
+    echo -e "        timeouts:     Get filter timeouts setting\n"
+    echo "  set:"
+    echo "        timeout [mode]           Set states timeouts [normal|hight-latency|aggressive|conservative]"
+    echo -e "        limit [limit] [value] Set states limits\n"
+    echo "  clear:"
+    echo "        stats         Clear rule's counters"
+    echo -e "        info          Clear filter current info\n"
+    echo "  disable:            Disable filter"
+    echo "  enable              Enable filter"
+    exit 1
+
+}
+
+
+case "$ACTION" in
+  get|g )
+    case "$2" in
+      
+      ucnt|u )
+        get_user_counters
+      ;;
+      
+      nucnt|nu )
+        get_nat_user_counters
+      ;;
+      
+      finfo|fi )
+        get_filter_info
+      ;;
+      
+      addr|a )
+        get_gate_ip_address
+      ;;
+
+      route|r )
+        get_gate_routes
+      ;;
+
+      peers|p )
+        get_gate_peers
+      ;;
+
+      limits|l )
+        get_limits
+      ;;
+
+      timeouts|t )
+        get_timeouts
+      ;;
+
+      ifstate|ifs )
+        get_interface_state
+      ;;
+
+      irq )
+        get_interrupt_info
+      ;;
+
+      platform|pl )
+      get_platform
+      ;;
+
+      *)
+        usage
+      ;;
+
+     esac
+  ;;
+  set|s )
+    
+    case "$2" in
+      limit|l )
+        set_limits "$3" "$4"
+      ;;
+      timeout|t )
+        set_mode "$3"
+      ;;
+
+      *)
+        usage
+      ;;
+    esac      
+ 
+  ;;
+  
+  clear|c )
+      case $2 in
+        
+        stats|s )
+          clear_filter_statistic
+        ;;
+
+        info|i )
+          clear_filter_info
+        ;;
+        *)
+          usage
+        ;;
+
+      esac
+  ;;
+  
+  disable|d )
+    $PFCTL -d 1>/dev/null 2>1
+    echo "Filter has disabled!"
+  ;;
+
+  enable|e )
+    $PFCTL -e 1>/dev/null 2>1
+    echo "Filter has enabled!" 
+  ;;
+
+  *)
+    usage
+  ;;
+esac
